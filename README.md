@@ -1,13 +1,17 @@
 # citas-web
 
-Repositorio frontend. **Comienza vacío de aplicación** porque cada estudiante debe:
+Frontend Angular para la gestión de citas de la FCV. Fue importado desde el
+proyecto de diseño `fcv-citas`.
 
-1. diseñar su interfaz con la Skill `stitch-design-to-frontend`;
-2. aprobar el diseño;
-3. exportar/continuar en Google AI Studio;
-4. elegir React o Angular;
-5. importar el código generado en este repo;
-6. reconciliar el resultado con el diseño aprobado;
-7. integrar REST directamente contra `citas-api`.
+## Ejecución local
 
-No usar Express/BFF.
+Requiere Node.js compatible con Angular 21.
+
+1. Instala las dependencias: `npm install`.
+2. Copia `.env.example` a `.env.local` y ajusta `API_URL` cuando se integre
+   con el backend.
+3. Inicia el servidor de desarrollo: `npm start`.
+
+La implementación actual usa `FcvDataService` como fuente de datos simulada.
+La posterior integración debe consumir la API REST de `citas-api` directamente,
+sin un BFF ni Express.

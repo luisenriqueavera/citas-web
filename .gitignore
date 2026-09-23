@@ -1,10 +1,52 @@
-.env
-.env.*
+# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# Env variables
+.env*
 !.env.example
+
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/bazel-out
+
+# Node
 node_modules/
-dist/
-.angular/
-coverage/
+npm-debug.log
+yarn-error.log
+
+# IDEs and editors
 .idea/
-.vscode/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/*
+
+# Miscellaneous
+/.angular/cache
+.sass-cache/
+/connect.lock
+/coverage
+/libpeerconnection.log
+testem.log
+/typings
+__screenshots__/
 *.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Variables de entorno locales del proyecto raíz
+.env
+.env.local
