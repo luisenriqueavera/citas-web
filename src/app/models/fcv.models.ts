@@ -116,3 +116,9 @@ export interface EntidadEPS {
   nombre: string;
   planes: string[];
 }
+
+export interface InsurancePlanOption {
+  id: number;
+  epsName: string;
+  name: string;
+}

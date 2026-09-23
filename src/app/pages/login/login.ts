@@ -176,7 +176,7 @@ import { UserRole } from '../../models/fcv.models';
                   ¿Nuevo en FCV Citas?
                   <button
                     type="button"
-                    (click)="showRegisterModal.set(true)"
+                    (click)="openRegisterModal()"
                     class="font-semibold text-primary hover:underline ml-1"
                   >
                     Registrarse como paciente
@@ -317,6 +317,9 @@ import { UserRole } from '../../models/fcv.models';
               (HU-004) Conforme a la política asistencial, los pacientes pueden afiliarse con su documento y EPS vinculada para agendar citas de Medicina General y Especializada.
             </p>
 
+            @if (registrationError()) {
+              <div class="p-3 rounded-xl bg-error-container text-on-error-container text-xs">{{ registrationError() }}</div>
+            }
             <div class="space-y-3">
               <div>
                 <label for="input-reg-name" class="block text-xs font-semibold text-on-surface mb-1">Nombre Completo</label>
@@ -340,9 +343,11 @@ import { UserRole } from '../../models/fcv.models';
                 </div>
                 <div>
                   <label for="select-reg-eps" class="block text-xs font-semibold text-on-surface mb-1">EPS Habilitada</label>
-                  <select id="select-reg-eps" class="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/60 rounded-xl text-sm">
-                    <option>EPS Demo A (Plan Demo 1)</option>
-                    <option>EPS Demo B (Plan Integral)</option>
+                  <select id="select-reg-eps" (change)="registrationPlanId.setValue($any($event.target).value ? +$any($event.target).value : null)" class="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/60 rounded-xl text-sm">
+                    <option value="">Sin afiliación (opcional)</option>
+                    @for (plan of fcvService.activeInsurancePlans(); track plan.id) {
+                      <option [value]="plan.id">{{ plan.epsName }} · {{ plan.name }}</option>
+                    }
                   </select>
                 </div>
               </div>
@@ -372,6 +377,8 @@ export class LoginPage {
   readonly errorMessage = signal<string>('');
   readonly showForgotPasswordModal = signal<boolean>(false);
   readonly showRegisterModal = signal<boolean>(false);
+  readonly registrationPlanId = new FormControl<number | null>(null);
+  readonly registrationError = signal<string>('');
 
   readonly loginForm = new FormGroup({
     email: new FormControl('carlos.perez@fcv.edu.co', [Validators.required, Validators.email]),
@@ -416,9 +423,31 @@ export class LoginPage {
   }
 
   confirmRegister(name: string) {
-    this.showRegisterModal.set(false);
-    this.fcvService.switchUserRole('USER');
-    this.fcvService.showToast('Registro exitoso', `Bienvenido al sistema ambulatorio FCV, ${name}.`, 'verified');
-    this.router.navigateByUrl('/paciente/inicio');
+    this.registrationError.set('');
+    const parts = name.trim().split(/\s+/);
+    const planId = this.registrationPlanId.value;
+    this.fcvService.registerUser({
+      firstName: parts[0] || 'Paciente', lastName: parts.slice(1).join(' ') || 'FCV',
+      documentType: 'CC', documentNumber: '1.098.765.432', email: `paciente-${Date.now()}@demo.invalid`,
+      phone: '3001234567', password: 'Secure123*', ...(planId === null ? {} : { planId }),
+    }).subscribe({
+      next: () => {
+        this.showRegisterModal.set(false); this.fcvService.switchUserRole('USER');
+        this.fcvService.showToast('Registro exitoso', `Bienvenido al sistema ambulatorio FCV, ${name}.`, 'verified');
+        this.router.navigateByUrl('/paciente/inicio');
+      },
+      error: (error: { error?: { error?: string } }) => {
+        this.registrationError.set(error.error?.error === 'invalid_plan' ? 'El plan seleccionado ya no está disponible.' : 'No fue posible completar el registro.');
+      },
+    });
+  }
+
+  openRegisterModal() {
+    this.registrationPlanId.setValue(null);
+    this.registrationError.set('');
+    this.showRegisterModal.set(true);
+    this.fcvService.loadActiveInsurancePlans().subscribe({
+      error: () => this.registrationError.set('No fue posible cargar los planes disponibles.'),
+    });
   }
 }

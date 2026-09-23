@@ -1,4 +1,6 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { tap } from 'rxjs';
 import {
   UserProfile,
   Cita,
@@ -8,6 +10,7 @@ import {
   EspecialidadMedica,
   SedeHospitalaria,
   EntidadEPS,
+  InsurancePlanOption,
   UserRole,
 } from '../models/fcv.models';
 
@@ -23,6 +26,7 @@ export interface ToastInfo {
   providedIn: 'root',
 })
 export class FcvDataService {
+  private readonly http = inject(HttpClient);
   // Preset Users
   readonly userPaciente: UserProfile = {
     id: 'user-paciente-1',
@@ -88,6 +92,17 @@ export class FcvDataService {
     { codigo: 'EPS-DEMO-01', nombre: 'EPS Demo A', planes: ['Plan Demo 1', 'Plan Demo 2'] },
     { codigo: 'EPS-DEMO-02', nombre: 'EPS Demo B', planes: ['Plan Integral Demo'] },
   ]);
+  readonly activeInsurancePlans = signal<InsurancePlanOption[]>([]);
+
+  loadActiveInsurancePlans() {
+    return this.http.get<InsurancePlanOption[]>('/api/insurance-plans').pipe(
+      tap(plans => this.activeInsurancePlans.set(plans)),
+    );
+  }
+
+  registerUser(payload: Record<string, unknown>) {
+    return this.http.post('/api/auth/register', payload);
+  }
 
   readonly profesionales = signal<ProfesionalSalud[]>([
     {
