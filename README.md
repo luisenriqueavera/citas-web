@@ -12,6 +12,7 @@ Requiere Node.js compatible con Angular 21.
    con el backend.
 3. Inicia el servidor de desarrollo: `npm start`.
 
-La implementación actual usa `FcvDataService` como fuente de datos simulada.
-La posterior integración debe consumir la API REST de `citas-api` directamente,
-sin un BFF ni Express.
+El registro de afiliación, la consulta de disponibilidad y la confirmación de
+reservas consumen directamente `citas-api` mediante REST; no se usa BFF ni
+Express. Las pantallas históricas de citas/agenda aún contienen datos heredados
+del prototipo y están fuera del corte de integración S3.

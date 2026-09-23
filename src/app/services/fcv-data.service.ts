@@ -11,6 +11,7 @@ import {
   SedeHospitalaria,
   EntidadEPS,
   InsurancePlanOption,
+  AvailabilityOption,
   UserRole,
 } from '../models/fcv.models';
 
@@ -29,7 +30,7 @@ export class FcvDataService {
   private readonly http = inject(HttpClient);
   // Preset Users
   readonly userPaciente: UserProfile = {
-    id: 'user-paciente-1',
+    id: '100',
     name: 'Carlos Andrés Pérez',
     email: 'carlos.perez@fcv.edu.co',
     role: 'USER',
@@ -102,6 +103,22 @@ export class FcvDataService {
 
   registerUser(payload: Record<string, unknown>) {
     return this.http.post('/api/auth/register', payload);
+  }
+
+  loadAvailability(filters: { date: string; locationId?: number; specialtyId?: number; professionalId?: number }) {
+    const params: Record<string, string> = { date: filters.date };
+    if (filters.locationId) params['locationId'] = String(filters.locationId);
+    if (filters.specialtyId) params['specialtyId'] = String(filters.specialtyId);
+    if (filters.professionalId) params['professionalId'] = String(filters.professionalId);
+    return this.http.get<AvailabilityOption[]>('/api/v1/availability', { params }).pipe(
+      tap(options => this.apiAvailability.set(options)),
+    );
+  }
+
+  readonly apiAvailability = signal<AvailabilityOption[]>([]);
+
+  createAppointment(payload: { patientUserId: number; professionalId: number; locationId: number; specialtyId: number; slotIds: number[]; reason?: string }) {
+    return this.http.post<{ id: number; status: 'APPROVED' | 'REQUESTED'; slotIds: number[] }>('/api/v1/appointments', payload);
   }
 
   readonly profesionales = signal<ProfesionalSalud[]>([

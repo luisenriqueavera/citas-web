@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
 import { FcvDataService } from '../../../services/fcv-data.service';
 
@@ -18,6 +19,10 @@ interface SlotDisponibilidad {
   cupoStatus: 'Libre' | 'Último Cupo';
   foto: string;
   disponible: boolean;
+  slotIds?: number[];
+  professionalId?: number;
+  locationId?: number;
+  specialtyId?: number;
 }
 
 @Component({
@@ -93,7 +98,8 @@ interface SlotDisponibilidad {
               type="date"
               id="input-filtro-fecha"
               #fechaFilter
-              value="2024-04-24"
+              value="2030-01-15"
+              (change)="selectedDate.set(fechaFilter.value)"
               class="w-full px-3 py-2.5 bg-surface-container-low border border-outline-variant/60 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary focus:outline-none"
             />
           </div>
@@ -399,7 +405,12 @@ export class BuscarDisponibilidadPage {
 
   readonly selectedSede = signal<string>('todas');
   readonly selectedEspecialidad = signal<string>('todas');
+  readonly selectedDate = signal<string>('2030-01-15');
   readonly bookingSlot = signal<SlotDisponibilidad | null>(null);
+
+  constructor() {
+    if (isPlatformBrowser(inject(PLATFORM_ID))) this.loadRealAvailability();
+  }
 
   readonly allSlots = signal<SlotDisponibilidad[]>([
     {
@@ -464,7 +475,34 @@ export class BuscarDisponibilidadPage {
   }
 
   aplicarFiltros() {
-    this.fcvService.showToast('Filtros aplicados', 'Se actualizaron las franjas según los criterios seleccionados.', 'search');
+    this.loadRealAvailability();
+  }
+
+  private loadRealAvailability() {
+    this.fcvService.loadAvailability({ date: this.selectedDate() }).subscribe({
+      next: options => this.allSlots.set(options.map(option => {
+        const start = new Date(option.startAt);
+        const end = new Date(option.endAt);
+        return {
+          id: option.id,
+          profesionalNombre: `Profesional ${option.professionalCode}`,
+          profesionalSubtitulo: 'Oferta publicada por API',
+          registro: option.professionalCode,
+          especialidad: option.specialtyName,
+          tipo: option.general ? 'general' : 'especializada',
+          duracionMin: Math.round((end.getTime() - start.getTime()) / 60000),
+          sede: option.locationName,
+          consultorio: 'Asignado por sede',
+          fechaTexto: start.toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' }),
+          fechaIso: this.selectedDate(),
+          hora: `${start.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`,
+          cupoStatus: 'Libre', disponible: true, slotIds: option.slotIds,
+          professionalId: option.professionalId, locationId: option.locationId, specialtyId: option.specialtyId,
+          foto: '',
+        } satisfies SlotDisponibilidad;
+      })),
+      error: () => this.fcvService.showToast('Disponibilidad no disponible', 'No fue posible consultar la agenda en este momento.', 'error', 'error'),
+    });
   }
 
   openBookingModal(slot: SlotDisponibilidad) {
@@ -477,19 +515,21 @@ export class BuscarDisponibilidadPage {
       return;
     }
 
-    this.fcvService.agendarCita({
-      especialidad: slot.especialidad,
-      profesionalNombre: slot.profesionalNombre,
-      sede: slot.sede,
-      consultorio: slot.consultorio,
-      fechaTexto: slot.fechaTexto,
-      fechaIso: slot.fechaIso,
-      hora: slot.hora,
-      duracionMinutos: slot.duracionMin,
-      tipo: slot.tipo,
+    if (!slot.slotIds || !slot.professionalId || !slot.locationId || !slot.specialtyId) {
+      this.fcvService.showToast('Disponibilidad inválida', 'La franja ya no está respaldada por la API.', 'error', 'error');
+      return;
+    }
+    this.fcvService.createAppointment({
+      patientUserId: Number(this.fcvService.currentUser().id) || 100,
+      professionalId: slot.professionalId, locationId: slot.locationId, specialtyId: slot.specialtyId,
+      slotIds: slot.slotIds, reason: 'Reserva realizada desde el portal paciente',
+    }).subscribe({
+      next: response => {
+        this.bookingSlot.set(null);
+        const label = response.status === 'APPROVED' ? 'Cita aprobada' : 'Solicitud creada';
+        this.fcvService.showToast(label, `La API registró la reserva con estado ${response.status}.`, 'verified');
+      },
+      error: error => this.fcvService.showToast(error.status === 409 ? 'Horario no disponible' : 'No fue posible reservar', error.status === 409 ? 'Otra solicitud retuvo esta franja.' : 'Intente nuevamente.', 'error', 'error'),
     });
-
-    this.bookingSlot.set(null);
-    this.router.navigateByUrl('/paciente/mis-citas');
   }
 }

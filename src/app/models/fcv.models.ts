@@ -122,3 +122,17 @@ export interface InsurancePlanOption {
   epsName: string;
   name: string;
 }
+
+export interface AvailabilityOption {
+  id: string;
+  professionalId: number;
+  locationId: number;
+  specialtyId: number;
+  specialtyName: string;
+  professionalCode: string;
+  locationName: string;
+  startAt: string;
+  endAt: string;
+  slotIds: number[];
+  general: boolean;
+}

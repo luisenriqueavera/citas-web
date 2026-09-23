@@ -429,7 +429,7 @@ export class LoginPage {
     this.fcvService.registerUser({
       firstName: parts[0] || 'Paciente', lastName: parts.slice(1).join(' ') || 'FCV',
       documentType: 'CC', documentNumber: '1.098.765.432', email: `paciente-${Date.now()}@demo.invalid`,
-      phone: '3001234567', password: 'Secure123*', ...(planId === null ? {} : { planId }),
+      phone: '3001234567', password: 'Secure123*', ...(planId === null ? {} : { insurancePlanId: planId }),
     }).subscribe({
       next: () => {
         this.showRegisterModal.set(false); this.fcvService.switchUserRole('USER');
