@@ -23,6 +23,17 @@ export interface ToastInfo {
   type?: 'success' | 'error' | 'info';
 }
 
+interface PendingAppointmentRow {
+  id: number;
+  patientUserId: number;
+  professionalId: number;
+  locationId: number;
+  specialtyId: number;
+  startAt: string;
+  endAt: string;
+  reason?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -94,6 +105,8 @@ export class FcvDataService {
     { codigo: 'EPS-DEMO-02', nombre: 'EPS Demo B', planes: ['Plan Integral Demo'] },
   ]);
   readonly activeInsurancePlans = signal<InsurancePlanOption[]>([]);
+  readonly adminPendingAppointments = signal<Cita[]>([]);
+  readonly adminPendingLoaded = signal(false);
 
   loadActiveInsurancePlans() {
     return this.http.get<InsurancePlanOption[]>('/api/insurance-plans').pipe(
@@ -103,6 +116,72 @@ export class FcvDataService {
 
   registerUser(payload: Record<string, unknown>) {
     return this.http.post('/api/auth/register', payload);
+  }
+
+  loginUser(email: string, password: string) {
+    return this.http.post<{ accessToken: string; refreshToken: string; tokenType: string }>('/api/auth/login', {email, password}).pipe(
+      tap(tokens => localStorage.setItem('fcv_access_token', tokens.accessToken)),
+    );
+  }
+
+  loadAdminPendingAppointments() {
+    return this.http.get<PendingAppointmentRow[]>('/api/v1/admin/appointments/pending').pipe(
+      tap(rows => {
+        this.adminPendingAppointments.set(rows.map(row => ({
+          id: String(row.id), codigo: `#FCV-${row.id}`, pacienteId: String(row.patientUserId),
+          pacienteNombre: `Usuario ${row.patientUserId}`, pacienteDoc: 'Documento protegido', pacienteAvatar: 'U',
+          especialidad: `Especialidad ${row.specialtyId}`, tipo: 'especializada', profesionalNombre: `Profesional ${row.professionalId}`,
+          profesionalSubtitulo: 'Solicitud API', sede: `Sede ${row.locationId}`, consultorio: 'Asignación API',
+          fechaTexto: row.startAt.slice(0, 10), fechaIso: row.startAt.slice(0, 10), hora: `${row.startAt.slice(11, 16)} - ${row.endAt.slice(11, 16)}`,
+          duracionMinutos: Math.round((new Date(row.endAt).getTime() - new Date(row.startAt).getTime()) / 60000),
+          estado: 'Pendiente de aprobación', trazabilidad: [],
+        })));
+        this.adminPendingLoaded.set(true);
+      }),
+    );
+  }
+
+  decideAdminAppointment(id: string, decision: 'APPROVE' | 'REJECT', reason?: string) {
+    return this.http.post(`/api/v1/admin/appointments/${id}/decision`, {decision, reason, adminUserId: 102}).pipe(
+      tap(() => this.loadAdminPendingAppointments().subscribe()),
+    );
+  }
+
+  createAvailabilityBlock(payload: { professionalId: number; locationId: number; availableDate: string; startTime: string; endTime: string }) {
+    return this.http.post('/api/v1/professional/availability-blocks', payload);
+  }
+
+  createProfessional(payload: Record<string, unknown>) {
+    return this.http.post<{id: number; email: string; professionalCode: string}>('/api/v1/admin/professionals', payload);
+  }
+
+  loadProfessionals() {
+    return this.http.get<{id: number; firstName: string; lastName: string; email: string; professionalCode: string; licenseNumber: string; active: boolean; specialtyName?: string; durationMinutes?: number; locationNames?: string[]}[]>('/api/v1/admin/professionals').pipe(
+      tap(rows => this.profesionales.set(rows.map(row => ({
+        apiId: row.id,
+        codigo: row.professionalCode,
+        nombre: `${row.firstName} ${row.lastName}`,
+        email: row.email,
+        registroSintetico: row.licenseNumber,
+        especialidadPrincipal: row.specialtyName ? `${row.specialtyName} (${row.durationMinutes ?? 30} min)` : 'Sin especialidad asignada',
+        duracionMin: row.durationMinutes ?? 30,
+        sedes: row.locationNames ?? [],
+        estado: row.active ? 'Activo' : 'Inactivo',
+        avatarColor: 'bg-primary text-on-primary',
+      })))),
+    );
+  }
+
+  changeProfessionalStatus(id: number, active: boolean) {
+    return this.http.patch(`/api/v1/admin/professionals/${id}/active`, {active});
+  }
+
+  assignProfessionalSpecialties(id: number, ids: number[], primaryId: number) {
+    return this.http.put(`/api/v1/admin/professionals/${id}/specialties`, {ids, primaryId});
+  }
+
+  assignProfessionalLocations(id: number, ids: number[]) {
+    return this.http.put(`/api/v1/admin/professionals/${id}/locations`, {ids});
   }
 
   loadAvailability(filters: { date: string; locationId?: number; specialtyId?: number; professionalId?: number }) {
@@ -507,6 +586,7 @@ export class FcvDataService {
   });
 
   readonly pendingSpecializedAppointments = computed(() => {
+    if (this.adminPendingLoaded()) return this.adminPendingAppointments();
     return this.citas().filter((c) => c.estado === 'Pendiente de aprobación');
   });
 
@@ -740,6 +820,13 @@ export class FcvDataService {
 
   // Administrador: Aprobar Cita Especializada (HU-017)
   aprobarCitaEspecializada(citaId: string) {
+    if (/^\d+$/.test(citaId)) {
+      this.decideAdminAppointment(citaId, 'APPROVE').subscribe({
+        next: () => this.showToast('Cita aprobada', 'La API confirmó la aprobación.', 'check_circle'),
+        error: () => this.showToast('Error', 'No fue posible aprobar la cita en la API.', 'error', 'error'),
+      });
+      return;
+    }
     this.citas.update((list) =>
       list.map((c) => {
         if (c.id === citaId) {
@@ -766,6 +853,13 @@ export class FcvDataService {
 
   // Administrador: Rechazar Cita Especializada (HU-017)
   rechazarCitaEspecializada(citaId: string, motivo: string) {
+    if (/^\d+$/.test(citaId)) {
+      this.decideAdminAppointment(citaId, 'REJECT', motivo).subscribe({
+        next: () => this.showToast('Cita rechazada', 'La API confirmó el rechazo.', 'cancel', 'error'),
+        error: () => this.showToast('Error', 'No fue posible rechazar la cita en la API.', 'error', 'error'),
+      });
+      return;
+    }
     this.citas.update((list) =>
       list.map((c) => {
         if (c.id === citaId) {
@@ -850,10 +944,9 @@ export class FcvDataService {
 
   // Profesional: Publicar bloque de horarios
   publicarBloqueHorario(data: { fecha: string; horaInicio: string; horaFin: string; sede: string }) {
-    this.showToast(
-      'Bloque de disponibilidad publicado',
-      `Horario habilitado para el ${data.fecha} de ${data.horaInicio} a ${data.horaFin} en ${data.sede}. Se generaron franjas de 30 min.`,
-      'event_available'
-    );
+    this.createAvailabilityBlock({professionalId: 1, locationId: 1, availableDate: data.fecha, startTime: data.horaInicio, endTime: data.horaFin}).subscribe({
+      next: () => this.showToast('Bloque publicado', 'La API generó las franjas de 30 minutos.', 'event_available'),
+      error: () => this.showToast('No se pudo publicar', 'Verifique fecha, sede y que no exista solapamiento.', 'error', 'error'),
+    });
   }
 }

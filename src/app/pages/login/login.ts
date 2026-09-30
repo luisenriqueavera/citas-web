@@ -56,7 +56,7 @@ import { UserRole } from '../../models/fcv.models';
                 <button
                   type="button"
                   id="btn-quick-paciente"
-                  (click)="fillCredentials('carlos.perez@fcv.edu.co', 'USER')"
+                  (click)="fillCredentials('paciente.demo@fcv.local', 'USER')"
                   class="px-2.5 py-1.5 rounded-xl bg-surface-container-lowest border border-outline-variant/40 hover:border-primary text-xs font-medium text-on-surface transition-all text-left flex items-center gap-1.5"
                 >
                   <span class="material-symbols-outlined text-primary text-sm">person</span>
@@ -65,7 +65,7 @@ import { UserRole } from '../../models/fcv.models';
                 <button
                   type="button"
                   id="btn-quick-medico"
-                  (click)="fillCredentials('camilo.restrepo@fcv.edu.co', 'PROFESSIONAL')"
+                  (click)="fillCredentials('profesional.demo@fcv.local', 'PROFESSIONAL')"
                   class="px-2.5 py-1.5 rounded-xl bg-surface-container-lowest border border-outline-variant/40 hover:border-primary text-xs font-medium text-on-surface transition-all text-left flex items-center gap-1.5"
                 >
                   <span class="material-symbols-outlined text-secondary text-sm">stethoscope</span>
@@ -74,7 +74,7 @@ import { UserRole } from '../../models/fcv.models';
                 <button
                   type="button"
                   id="btn-quick-admin"
-                  (click)="fillCredentials('admin@fcv.edu.co', 'ADMIN')"
+                  (click)="fillCredentials('admin.demo@fcv.local', 'ADMIN')"
                   class="px-2.5 py-1.5 rounded-xl bg-surface-container-lowest border border-outline-variant/40 hover:border-primary text-xs font-medium text-on-surface transition-all text-left flex items-center gap-1.5"
                 >
                   <span class="material-symbols-outlined text-primary text-sm">shield_person</span>
@@ -386,7 +386,7 @@ export class LoginPage {
   });
 
   fillCredentials(email: string, role: UserRole) {
-    this.loginForm.patchValue({ email, password: 'password123' });
+    this.loginForm.patchValue({ email, password: 'password' });
     this.errorMessage.set('');
     this.fcvService.switchUserRole(role);
   }
@@ -400,8 +400,9 @@ export class LoginPage {
     this.isSubmitting.set(true);
     this.errorMessage.set('');
 
-    setTimeout(() => {
-      this.isSubmitting.set(false);
+    this.fcvService.loginUser(this.loginForm.value.email || '', this.loginForm.value.password || '').subscribe({
+      next: () => {
+        this.isSubmitting.set(false);
       const email = this.loginForm.value.email || '';
 
       if (email.includes('admin')) {
@@ -414,7 +415,12 @@ export class LoginPage {
         this.fcvService.switchUserRole('USER');
         this.router.navigateByUrl('/paciente/inicio');
       }
-    }, 400);
+      },
+      error: () => {
+        this.isSubmitting.set(false);
+        this.errorMessage.set('Credenciales inválidas o API no disponible.');
+      },
+    });
   }
 
   confirmResetPassword() {

@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+set -eu
+
+secret_pattern='AKIA[0-9A-Z]{16}|-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----|GEMINI_API_KEY[[:space:]]*=[[:space:]]*[^"[:space:]]'
+if command -v rg >/dev/null 2>&1; then
+  scan_result=$(rg -n --hidden --glob '!.git/**' --glob '!node_modules/**' --glob '!*.example' "$secret_pattern" . || true)
+else
+  scan_result=$(find . -path './.git' -prune -o -path './node_modules' -prune -o -type f -exec grep -nH -E "$secret_pattern" {} + | grep -v 'CHANGE_ME' || true)
+fi
+if [ -n "$scan_result" ]; then
+  printf '%s\n' "$scan_result"
+  echo "Secreto potencial detectado; commit bloqueado."
+  exit 1
+fi
+
+if [ -f ./node_modules/.bin/ng ]; then
+  npm run lint
+  npm test -- --watch=false
+elif command -v docker >/dev/null 2>&1 && docker compose -f ../docker-compose.yml ps --status running citas-web-dev >/dev/null 2>&1; then
+  echo "Dependencias locales no disponibles; ejecutando validaciones en el contenedor citas-web-dev."
+  docker compose -f ../docker-compose.yml exec -T citas-web-dev npm run lint
+  docker compose -f ../docker-compose.yml exec -T citas-web-dev npm test -- --watch=false
+else
+  echo "No se encontró Angular local ni un contenedor citas-web-dev disponible."
+  echo "Ejecuta docker compose up -d y vuelve a intentar el commit."
+  exit 1
+fi

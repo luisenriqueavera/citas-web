@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { FcvDataService } from '../../../services/fcv-data.service';
 import { Cita } from '../../../models/fcv.models';
 
@@ -324,6 +325,14 @@ import { Cita } from '../../../models/fcv.models';
 })
 export class AdminSolicitudesPage {
   readonly fcvService = inject(FcvDataService);
+
+  constructor() {
+    if (isPlatformBrowser(inject(PLATFORM_ID))) {
+      this.fcvService.loadAdminPendingAppointments().subscribe({
+        error: () => this.fcvService.showToast('Modo local', 'No se pudo cargar la bandeja API.', 'cloud_off', 'info'),
+      });
+    }
+  }
 
   readonly activeTab = signal<'especializadas' | 'reprogramaciones'>('especializadas');
   readonly selectedCitaToReject = signal<Cita | null>(null);

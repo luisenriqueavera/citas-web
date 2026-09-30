@@ -84,6 +84,7 @@ export interface SolicitudReprogramacion {
 }
 
 export interface ProfesionalSalud {
+    apiId?: number;
   codigo: string; // PROF-101
   nombre: string;
   email: string;

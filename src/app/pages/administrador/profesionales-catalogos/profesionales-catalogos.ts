@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { PLATFORM_ID } from '@angular/core';
 import { FcvDataService } from '../../../services/fcv-data.service';
 import { ProfesionalSalud } from '../../../models/fcv.models';
 
@@ -350,8 +352,15 @@ import { ProfesionalSalud } from '../../../models/fcv.models';
 })
 export class ProfesionalesCatalogosPage {
   readonly fcvService = inject(FcvDataService);
+  private readonly platformId = inject(PLATFORM_ID);
 
   readonly showCreateModal = signal<boolean>(false);
+
+  constructor() {
+    if (isPlatformBrowser(this.platformId)) {
+      this.fcvService.loadProfessionals().subscribe({ error: () => this.fcvService.showToast('API no disponible', 'No fue posible cargar el directorio real.', 'error', 'error') });
+    }
+  }
 
   activosCount() {
     return this.fcvService.profesionales().filter((p) => p.estado === 'Activo').length;
@@ -359,6 +368,16 @@ export class ProfesionalesCatalogosPage {
 
   toggleEstado(prof: ProfesionalSalud) {
     const nuevo = prof.estado === 'Activo' ? 'Inactivo' : 'Activo';
+    if (prof.apiId) {
+      this.fcvService.changeProfessionalStatus(prof.apiId, nuevo === 'Activo').subscribe({
+        next: () => {
+          this.fcvService.profesionales.update((list) => list.map((p) => (p.apiId === prof.apiId ? { ...p, estado: nuevo } : p)));
+          this.fcvService.showToast('Estado actualizado', `${prof.nombre} ahora está ${nuevo}.`, 'tune');
+        },
+        error: () => this.fcvService.showToast('No se pudo actualizar', 'La API rechazó el cambio de estado.', 'error', 'error'),
+      });
+      return;
+    }
     this.fcvService.profesionales.update((list) =>
       list.map((p) => (p.codigo === prof.codigo ? { ...p, estado: nuevo } : p))
     );
@@ -375,16 +394,34 @@ export class ProfesionalesCatalogosPage {
     if (norte) sedes.push('Sede Norte');
     if (sur) sedes.push('Sede Sur');
 
-    const dur = esp.includes('60') ? 60 : esp.includes('45') ? 45 : 30;
-
-    this.fcvService.agregarProfesional({
-      nombre,
-      registroSintetico: reg,
-      especialidadPrincipal: esp,
-      duracionMin: dur,
-      sedes,
+    const nombres = nombre.trim().split(/\s+/);
+    const specialtyId = esp.startsWith('Cardiología') ? 2 : esp.startsWith('Dermatología') ? 3 : esp.startsWith('Neurología') ? 4 : 1;
+    const locationIds = [norte ? 1 : 0, sur ? 2 : 0].filter(Boolean);
+    this.fcvService.createProfessional({
+      firstName: nombres.shift() ?? nombre,
+      lastName: nombres.join(' ') || 'Profesional',
+      documentType: 'CC',
+      documentNumber: `FCV-${Date.now()}`,
+      email: `${nombre.toLowerCase().replace(/[^a-záéíóúñ ]/gi, '').trim().replace(/\s+/g, '.')}@fcv.local`,
+      phone: '3000000000',
+      temporaryPassword: 'password',
+      professionalCode: `PROF-${Date.now()}`,
+      licenseNumber: reg || `REG-${Date.now()}`,
+    }).subscribe({
+      next: created => {
+        this.fcvService.assignProfessionalSpecialties(created.id, [specialtyId], specialtyId).subscribe({
+          next: () => this.fcvService.assignProfessionalLocations(created.id, locationIds).subscribe({
+            next: () => {
+              this.showCreateModal.set(false);
+              this.fcvService.loadProfessionals().subscribe();
+              this.fcvService.showToast('Profesional creado', 'El profesional y sus asignaciones fueron guardados en la API.', 'check_circle');
+            },
+            error: () => this.fcvService.showToast('Asignación incompleta', 'El profesional fue creado, pero las sedes no pudieron asignarse.', 'error', 'error'),
+          }),
+          error: () => this.fcvService.showToast('Asignación incompleta', 'El profesional fue creado, pero la especialidad no pudo asignarse.', 'error', 'error'),
+        });
+      },
+      error: () => this.fcvService.showToast('No se pudo crear', 'La API rechazó el registro del profesional.', 'error', 'error'),
     });
-
-    this.showCreateModal.set(false);
   }
 }

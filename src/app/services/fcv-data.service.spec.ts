@@ -25,4 +25,22 @@ describe('FcvDataService REST scheduling', () => {
     expect(reservation.request.method).toBe('POST');
     reservation.flush({id: 1, status: 'APPROVED', slotIds: [1]});
   });
+
+  it('loads active insurance plans and registers without forcing a plan', () => {
+    service.loadActiveInsurancePlans().subscribe(plans => expect(plans).toEqual([
+      {id: 1, epsName: 'EPS Demo A', name: 'Plan Demo 1'},
+    ]));
+    const plans = http.expectOne('/api/insurance-plans');
+    expect(plans.request.method).toBe('GET');
+    plans.flush([{id: 1, epsName: 'EPS Demo A', name: 'Plan Demo 1'}]);
+
+    service.registerUser({
+      firstName: 'Ana', lastName: 'Prueba', documentType: 'CC', documentNumber: '123',
+      email: 'ana@example.test', phone: '3000000000', password: 'Secure123*',
+    }).subscribe();
+    const registration = http.expectOne('/api/auth/register');
+    expect(registration.request.method).toBe('POST');
+    expect(registration.request.body.insurancePlanId).toBeUndefined();
+    registration.flush({id: 1, email: 'ana@example.test', roles: ['USER']});
+  });
 });
