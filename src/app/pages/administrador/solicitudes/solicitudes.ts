@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { FcvDataService } from '../../../services/fcv-data.service';
-import { Cita } from '../../../models/fcv.models';
+import { Cita, SolicitudReprogramacion } from '../../../models/fcv.models';
 
 @Component({
   selector: 'app-admin-solicitudes',
@@ -218,7 +218,7 @@ import { Cita } from '../../../models/fcv.models';
               <div class="pt-3 border-t border-outline-variant/30 flex items-center justify-end gap-2.5 flex-wrap">
                 <button
                   type="button"
-                  (click)="rechazarReprog(rep.id)"
+                  (click)="openRechazoReprogModal(rep)"
                   class="px-4 py-2 rounded-xl bg-surface-container text-xs font-semibold text-error hover:bg-error-container border border-error/20 transition-colors cursor-pointer"
                 >
                   Rechazar cambio conservando horario actual
@@ -321,6 +321,70 @@ import { Cita } from '../../../models/fcv.models';
         </div>
       </div>
     }
+
+    <!-- Modal de Rechazo de Reprogramación (HU-020) -->
+    @if (selectedRepToReject()) {
+      @let rep = selectedRepToReject()!;
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-on-surface/50 backdrop-blur-xs">
+        <div class="w-full max-w-lg bg-surface-container-lowest rounded-3xl p-6 sm:p-7 shadow-2xl border border-outline-variant/40 space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-outline-variant/30">
+            <div class="flex items-center gap-2.5 text-error">
+              <span class="material-symbols-outlined text-2xl">cancel</span>
+              <h3 class="font-title-lg font-bold text-on-surface text-base sm:text-lg">
+                Rechazo de Reprogramación
+              </h3>
+            </div>
+            <button
+              type="button"
+              (click)="selectedRepToReject.set(null)"
+              class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant"
+            >
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+
+          <div class="p-3.5 rounded-2xl bg-surface-container-low text-xs space-y-1">
+            <span class="text-outline">Paciente:</span>
+            <p class="font-bold text-on-surface text-sm">{{ rep.pacienteNombre }} · {{ rep.pacienteDoc }}</p>
+            <p class="text-on-surface-variant">Franja actual: {{ rep.fechaActual }} · {{ rep.horaActual }}</p>
+          </div>
+
+          <div>
+            <label for="textarea-motivo-rechazo-rep" class="block text-xs font-semibold text-on-surface mb-1.5">
+              Motivo del rechazo (obligatorio)
+            </label>
+            <textarea
+              id="textarea-motivo-rechazo-rep"
+              [value]="repRejectionText()"
+              (input)="onRepRejectionTextInput($event)"
+              rows="3"
+              class="w-full px-3 py-2.5 bg-surface-container-low border border-outline-variant/60 rounded-xl text-xs focus:ring-2 focus:ring-error focus:outline-none"
+            ></textarea>
+            @if (repRejectionText().length < 8) {
+              <p class="text-[11px] text-error mt-1">El motivo debe contener al menos 8 caracteres.</p>
+            }
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-outline-variant/30">
+            <button
+              type="button"
+              (click)="selectedRepToReject.set(null)"
+              class="px-4 py-2 rounded-xl bg-surface-container text-xs font-semibold text-on-surface hover:bg-surface-container-high transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              [disabled]="repRejectionText().length < 8"
+              (click)="confirmarRechazoReprog()"
+              class="px-4 py-2 rounded-xl bg-error text-on-error text-xs font-semibold hover:bg-error/90 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Confirmar Rechazo
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class AdminSolicitudesPage {
@@ -331,12 +395,20 @@ export class AdminSolicitudesPage {
       this.fcvService.loadAdminPendingAppointments().subscribe({
         error: () => this.fcvService.showToast('Modo local', 'No se pudo cargar la bandeja API.', 'cloud_off', 'info'),
       });
+      this.fcvService.loadCatalogSpecialties().subscribe();
+      this.fcvService.loadCatalogLocations().subscribe();
+      this.fcvService.loadCatalogProfessionals().subscribe();
+      this.fcvService.loadAdminPendingReschedules().subscribe({
+        error: () => this.fcvService.showToast('Modo local', 'No se pudo cargar la bandeja de reprogramaciones.', 'cloud_off', 'info'),
+      });
     }
   }
 
   readonly activeTab = signal<'especializadas' | 'reprogramaciones'>('especializadas');
   readonly selectedCitaToReject = signal<Cita | null>(null);
   readonly rejectionText = signal<string>('Cupo quirúrgico prioritario asignado en dicha franja.');
+  readonly selectedRepToReject = signal<SolicitudReprogramacion | null>(null);
+  readonly repRejectionText = signal<string>('Franja no disponible según despacho administrativo.');
 
   totalPendientes() {
     return this.fcvService.pendingSpecializedAppointments().length + this.fcvService.pendingReprogramaciones().length;
@@ -365,10 +437,24 @@ export class AdminSolicitudesPage {
   }
 
   aprobarReprog(repId: string) {
-    this.fcvService.aprobarReprogramacion(repId);
+    this.fcvService.aprobarReprogramacion(Number(repId));
   }
 
-  rechazarReprog(repId: string) {
-    this.fcvService.rechazarReprogramacion(repId);
+  openRechazoReprogModal(rep: SolicitudReprogramacion) {
+    this.selectedRepToReject.set(rep);
+    this.repRejectionText.set('Franja no disponible según despacho administrativo.');
+  }
+
+  onRepRejectionTextInput(event: Event) {
+    const target = event.target as HTMLTextAreaElement;
+    this.repRejectionText.set(target.value);
+  }
+
+  confirmarRechazoReprog() {
+    const rep = this.selectedRepToReject();
+    if (!rep) return;
+
+    this.fcvService.rechazarReprogramacion(Number(rep.id), this.repRejectionText());
+    this.selectedRepToReject.set(null);
   }
 }

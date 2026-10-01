@@ -63,7 +63,24 @@ export interface Cita {
   observacionAsistencial?: string;
   registroHoraConfirmado?: string;
   trazabilidad: AuditEvent[];
+  // Campos reales del backend (S4), presentes cuando la cita viene de la API en vez del mock.
+  appointmentId?: number;
+  professionalId?: number;
+  specialtyId?: number;
+  locationId?: number;
+  startAtIso?: string;
+  endAtIso?: string;
 }
+
+/** Mapea el código de estado del backend (appointment_statuses) al estado en español usado en la UI. */
+export const APPOINTMENT_STATUS_MAP: Record<string, AppointmentStatus> = {
+  REQUESTED: 'Pendiente de aprobación',
+  APPROVED: 'Confirmada',
+  REJECTED: 'Rechazada',
+  CANCELLED: 'Cancelada',
+  COMPLETED: 'Realizada',
+  NO_SHOW: 'No asistió',
+};
 
 export interface SolicitudReprogramacion {
   id: string;
@@ -136,4 +153,25 @@ export interface AvailabilityOption {
   endAt: string;
   slotIds: number[];
   general: boolean;
+}
+
+export interface ProfessionalOption {
+  id: number;
+  name: string;
+  professionalCode: string;
+}
+
+export interface EpsPlanAdmin {
+  id: number;
+  code: string;
+  name: string;
+  active: boolean;
+}
+
+export interface EpsAdmin {
+  id: number;
+  code: string;
+  name: string;
+  active: boolean;
+  plans: EpsPlanAdmin[];
 }

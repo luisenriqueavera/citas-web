@@ -459,10 +459,12 @@ export class PacienteInicioPage {
 
   confirmReschedule(date: string, time: string, reason: string) {
     const cita = this.selectedCitaForReschedule();
-    if (!cita) return;
-
-    this.fcvService.solicitarReprogramacion(cita.id, date, time, reason);
     this.selectedCitaForReschedule.set(null);
+    if (!cita?.appointmentId) {
+      this.fcvService.showToast('Vista no conectada', 'Use "Mis Citas" para solicitar la reprogramación real.', 'info', 'info');
+      return;
+    }
+    this.fcvService.solicitarReprogramacion(cita.appointmentId, [], reason);
   }
 
   openCancelModal(cita: Cita) {
@@ -471,10 +473,12 @@ export class PacienteInicioPage {
 
   confirmCancel() {
     const cita = this.selectedCitaForCancel();
-    if (!cita) return;
-
-    this.fcvService.cancelarCita(cita.id);
     this.selectedCitaForCancel.set(null);
+    if (!cita?.appointmentId) {
+      this.fcvService.showToast('Vista no conectada', 'Use "Mis Citas" para cancelar la cita real.', 'info', 'info');
+      return;
+    }
+    this.fcvService.cancelarCita(cita.appointmentId);
   }
 
   responderCambio(citaId: string, aceptar: boolean) {

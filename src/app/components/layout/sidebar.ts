@@ -157,6 +157,16 @@ import { FcvDataService } from '../../services/fcv-data.service';
                 <span class="material-symbols-outlined text-xl">medical_information</span>
                 <span>Profesionales y Catálogos</span>
               </a>
+              <a
+                id="nav-admin-eps"
+                routerLink="/administrador/eps-catalogos"
+                routerLinkActive="bg-primary-fixed text-on-primary-fixed font-semibold"
+                (click)="closeSidebar.emit()"
+                class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-colors"
+              >
+                <span class="material-symbols-outlined text-xl">health_and_safety</span>
+                <span>EPS y Planes</span>
+              </a>
             </div>
           </div>
         </nav>

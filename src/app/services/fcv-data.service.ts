@@ -1,10 +1,13 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { tap } from 'rxjs';
+import { map, tap } from 'rxjs';
+import { environment } from '../../environments/environment';
 import {
   UserProfile,
   Cita,
   AppointmentStatus,
+  APPOINTMENT_STATUS_MAP,
+  AuditEvent,
   SolicitudReprogramacion,
   ProfesionalSalud,
   EspecialidadMedica,
@@ -12,6 +15,8 @@ import {
   EntidadEPS,
   InsurancePlanOption,
   AvailabilityOption,
+  ProfessionalOption,
+  EpsAdmin,
   UserRole,
 } from '../models/fcv.models';
 
@@ -34,11 +39,60 @@ interface PendingAppointmentRow {
   reason?: string;
 }
 
+interface AppointmentDetailRow {
+  id: number;
+  professionalId: number;
+  locationId: number;
+  specialtyId: number;
+  status: string;
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  durationMinutes: number;
+  reason: string | null;
+  rejectionReason: string | null;
+}
+
+interface AppointmentHistoryRow {
+  status: string;
+  changeSource: string;
+  reason: string | null;
+  changedAt: string;
+}
+
+interface ProfessionalAgendaRow {
+  id: number;
+  patientUserId: number;
+  patientName: string;
+  locationId: number;
+  specialtyId: number;
+  status: string;
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  durationMinutes: number;
+  reason: string | null;
+}
+
+interface PendingRescheduleRow {
+  id: number;
+  appointment_id: number;
+  requested_by_user_id: number;
+  reason: string | null;
+  created_at: string;
+  professional_id: number;
+  location_id: number;
+  specialty_id: number;
+  old_start_at: string;
+  old_end_at: string;
+  new_start_at: string;
+  new_end_at: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
 export class FcvDataService {
   private readonly http = inject(HttpClient);
+  private readonly apiBaseUrl = environment.apiBaseUrl;
   // Preset Users
   readonly userPaciente: UserProfile = {
     id: '100',
@@ -107,6 +161,19 @@ export class FcvDataService {
   readonly activeInsurancePlans = signal<InsurancePlanOption[]>([]);
   readonly adminPendingAppointments = signal<Cita[]>([]);
   readonly adminPendingLoaded = signal(false);
+
+  // S4: catálogos reales por id, usados para resolver nombres en "Mis Citas"/"Mi Agenda".
+  readonly catalogLocations = signal<{ id: number; name: string }[]>([]);
+  readonly catalogSpecialties = signal<{ id: number; name: string; durationMinutes: number }[]>([]);
+  readonly catalogProfessionals = signal<ProfessionalOption[]>([]);
+
+  readonly apiMyCitas = signal<Cita[]>([]);
+  readonly apiMyCitasLoaded = signal(false);
+  readonly apiAgenda = signal<Cita[]>([]);
+  readonly apiAgendaLoaded = signal(false);
+  readonly adminPendingReschedules = signal<SolicitudReprogramacion[]>([]);
+  readonly adminPendingReschedulesLoaded = signal(false);
+  readonly epsAdminList = signal<EpsAdmin[]>([]);
 
   loadActiveInsurancePlans() {
     return this.http.get<InsurancePlanOption[]>('/api/insurance-plans').pipe(
@@ -198,6 +265,215 @@ export class FcvDataService {
 
   createAppointment(payload: { patientUserId: number; professionalId: number; locationId: number; specialtyId: number; slotIds: number[]; reason?: string }) {
     return this.http.post<{ id: number; status: 'APPROVED' | 'REQUESTED'; slotIds: number[] }>('/api/v1/appointments', payload);
+  }
+
+  // S4: catálogos reales por id (nombres de sede/especialidad/profesional).
+  loadCatalogLocations() {
+    return this.http.get<{ id: number; name: string }[]>(`${this.apiBaseUrl}/api/v1/catalogs/locations`).pipe(
+      tap((rows) => this.catalogLocations.set(rows)),
+    );
+  }
+
+  loadCatalogSpecialties() {
+    return this.http.get<{ id: number; name: string; durationMinutes: number }[]>(`${this.apiBaseUrl}/api/v1/catalogs/specialties`).pipe(
+      tap((rows) => this.catalogSpecialties.set(rows)),
+    );
+  }
+
+  loadCatalogProfessionals() {
+    return this.http.get<ProfessionalOption[]>(`${this.apiBaseUrl}/api/v1/catalogs/professionals`).pipe(
+      tap((rows) => this.catalogProfessionals.set(rows)),
+    );
+  }
+
+  private mapAppointmentDetailToCita(row: AppointmentDetailRow): Cita {
+    const specialty = this.catalogSpecialties().find((s) => s.id === row.specialtyId);
+    const location = this.catalogLocations().find((l) => l.id === row.locationId);
+    const professional = this.catalogProfessionals().find((p) => p.id === row.professionalId);
+    return {
+      id: String(row.id),
+      appointmentId: row.id,
+      codigo: `#FCV-${row.id}`,
+      pacienteId: this.currentUser().id,
+      pacienteNombre: this.currentUser().name,
+      pacienteDoc: this.currentUser().documento ?? '',
+      pacienteAvatar: this.currentUser().avatarText,
+      especialidad: specialty?.name ?? `Especialidad ${row.specialtyId}`,
+      tipo: specialty && specialty.durationMinutes <= 30 ? 'general' : 'especializada',
+      profesionalNombre: professional?.name ?? `Profesional ${row.professionalId}`,
+      profesionalSubtitulo: professional?.professionalCode ?? '',
+      sede: location?.name ?? `Sede ${row.locationId}`,
+      consultorio: '',
+      fechaTexto: row.scheduledStartAt.slice(0, 10),
+      fechaIso: row.scheduledStartAt.slice(0, 10),
+      hora: `${row.scheduledStartAt.slice(11, 16)} - ${row.scheduledEndAt.slice(11, 16)}`,
+      duracionMinutos: row.durationMinutes,
+      estado: APPOINTMENT_STATUS_MAP[row.status] ?? 'Pendiente de aprobación',
+      motivoRechazo: row.rejectionReason ?? undefined,
+      professionalId: row.professionalId,
+      specialtyId: row.specialtyId,
+      locationId: row.locationId,
+      startAtIso: row.scheduledStartAt,
+      endAtIso: row.scheduledEndAt,
+      trazabilidad: [],
+    };
+  }
+
+  // Mis citas (HU-018)
+  loadMyAppointments(filters: { status?: string; from?: string; to?: string } = {}) {
+    const params: Record<string, string> = {};
+    if (filters.status) params['status'] = filters.status;
+    if (filters.from) params['from'] = filters.from;
+    if (filters.to) params['to'] = filters.to;
+    return this.http.get<AppointmentDetailRow[]>(`${this.apiBaseUrl}/api/v1/me/appointments`, { params }).pipe(
+      tap((rows) => {
+        this.apiMyCitas.set(rows.map((row) => this.mapAppointmentDetailToCita(row)));
+        this.apiMyCitasLoaded.set(true);
+      }),
+    );
+  }
+
+  loadMyAppointmentHistory(appointmentId: number) {
+    return this.http.get<AppointmentHistoryRow[]>(`${this.apiBaseUrl}/api/v1/me/appointments/${appointmentId}/history`).pipe(
+      map((rows) => rows.map((row): AuditEvent => ({
+        estado: APPOINTMENT_STATUS_MAP[row.status] ?? row.status,
+        fechaHora: new Date(row.changedAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }),
+        actor: row.changeSource,
+        fuente: row.changeSource,
+        descripcion: row.reason ?? undefined,
+      }))),
+    );
+  }
+
+  // Cancelación (HU-019)
+  cancelAppointment(appointmentId: number) {
+    return this.http.post<{ id: number; status: string }>(`${this.apiBaseUrl}/api/v1/me/appointments/${appointmentId}/cancel`, {});
+  }
+
+  // Reprogramación (HU-020)
+  requestReschedule(appointmentId: number, payload: { slotIds?: number[]; startAt?: string; reason: string }) {
+    return this.http.post<{ id: number; appointmentId: number; status: string; slotIds: number[] }>(
+      `${this.apiBaseUrl}/api/v1/me/appointments/${appointmentId}/reschedule-requests`, payload,
+    );
+  }
+
+  loadAdminPendingReschedules() {
+    return this.http.get<PendingRescheduleRow[]>(`${this.apiBaseUrl}/api/v1/admin/reschedule-requests/pending`).pipe(
+      tap((rows) => {
+        this.adminPendingReschedules.set(rows.map((row) => ({
+          id: String(row.id),
+          codigo: `#REP-${row.id}`,
+          citaId: String(row.appointment_id),
+          pacienteNombre: `Usuario ${row.requested_by_user_id}`,
+          pacienteDoc: 'Documento protegido',
+          especialidad: this.catalogSpecialties().find((s) => s.id === row.specialty_id)?.name ?? `Especialidad ${row.specialty_id}`,
+          profesional: this.catalogProfessionals().find((p) => p.id === row.professional_id)?.name ?? `Profesional ${row.professional_id}`,
+          sede: this.catalogLocations().find((l) => l.id === row.location_id)?.name ?? `Sede ${row.location_id}`,
+          consultorio: '',
+          fechaActual: row.old_start_at.slice(0, 10),
+          horaActual: `${row.old_start_at.slice(11, 16)} - ${row.old_end_at.slice(11, 16)}`,
+          fechaPropuesta: row.new_start_at.slice(0, 10),
+          horaPropuesta: `${row.new_start_at.slice(11, 16)} - ${row.new_end_at.slice(11, 16)}`,
+          motivo: row.reason ?? 'Sin motivo registrado',
+          estado: 'pendiente',
+        })));
+        this.adminPendingReschedulesLoaded.set(true);
+      }),
+    );
+  }
+
+  decideAdminReschedule(id: number, decision: 'APPROVE' | 'REJECT', reason?: string) {
+    return this.http.post(`${this.apiBaseUrl}/api/v1/admin/reschedule-requests/${id}/decision`, { decision, reason }).pipe(
+      tap(() => this.loadAdminPendingReschedules().subscribe()),
+    );
+  }
+
+  // Agenda del profesional (HU-021) y cierre de atención (HU-022)
+  loadMyAgenda(filters: { date?: string; from?: string; to?: string; locationId?: number } = {}) {
+    const params: Record<string, string> = {};
+    if (filters.date) params['date'] = filters.date;
+    if (filters.from) params['from'] = filters.from;
+    if (filters.to) params['to'] = filters.to;
+    if (filters.locationId) params['locationId'] = String(filters.locationId);
+    return this.http.get<ProfessionalAgendaRow[]>(`${this.apiBaseUrl}/api/v1/professional/appointments`, { params }).pipe(
+      tap((rows) => {
+        this.apiAgenda.set(rows.map((row) => {
+          const specialty = this.catalogSpecialties().find((s) => s.id === row.specialtyId);
+          const location = this.catalogLocations().find((l) => l.id === row.locationId);
+          return {
+            id: String(row.id),
+            appointmentId: row.id,
+            codigo: `#FCV-${row.id}`,
+            pacienteId: String(row.patientUserId),
+            pacienteNombre: row.patientName,
+            pacienteDoc: '',
+            pacienteAvatar: row.patientName.slice(0, 2).toUpperCase(),
+            especialidad: specialty?.name ?? `Especialidad ${row.specialtyId}`,
+            tipo: specialty && specialty.durationMinutes <= 30 ? 'general' : 'especializada',
+            profesionalNombre: this.currentUser().name,
+            profesionalSubtitulo: '',
+            sede: location?.name ?? `Sede ${row.locationId}`,
+            consultorio: '',
+            fechaTexto: row.scheduledStartAt.slice(0, 10),
+            fechaIso: row.scheduledStartAt.slice(0, 10),
+            hora: `${row.scheduledStartAt.slice(11, 16)} - ${row.scheduledEndAt.slice(11, 16)}`,
+            duracionMinutos: row.durationMinutes,
+            estado: APPOINTMENT_STATUS_MAP[row.status] ?? 'Confirmada',
+            professionalId: row.locationId,
+            specialtyId: row.specialtyId,
+            locationId: row.locationId,
+            startAtIso: row.scheduledStartAt,
+            endAtIso: row.scheduledEndAt,
+            trazabilidad: [],
+          } satisfies Cita;
+        }));
+        this.apiAgendaLoaded.set(true);
+      }),
+    );
+  }
+
+  closeAppointment(appointmentId: number, outcome: 'COMPLETED' | 'NO_SHOW') {
+    return this.http.post<{ id: number; status: string }>(`${this.apiBaseUrl}/api/v1/professional/appointments/${appointmentId}/close`, { outcome });
+  }
+
+  // Recuperación de contraseña (HU-024)
+  requestPasswordReset(email: string) {
+    return this.http.post<{ message: string; devToken?: string }>(`${this.apiBaseUrl}/api/auth/password-reset/request`, { email });
+  }
+
+  confirmPasswordReset(token: string, newPassword: string) {
+    return this.http.post(`${this.apiBaseUrl}/api/auth/password-reset/confirm`, { token, newPassword });
+  }
+
+  // CRUD de EPS y planes (HU-023)
+  loadEps() {
+    return this.http.get<EpsAdmin[]>(`${this.apiBaseUrl}/api/v1/admin/eps`).pipe(
+      tap((rows) => this.epsAdminList.set(rows)),
+    );
+  }
+
+  createEps(code: string, name: string) {
+    return this.http.post(`${this.apiBaseUrl}/api/v1/admin/eps`, { code, name });
+  }
+
+  updateEps(id: number, name: string) {
+    return this.http.patch(`${this.apiBaseUrl}/api/v1/admin/eps/${id}`, { name });
+  }
+
+  changeEpsStatus(id: number, active: boolean) {
+    return this.http.patch(`${this.apiBaseUrl}/api/v1/admin/eps/${id}/active`, { active });
+  }
+
+  createEpsPlan(epsId: number, code: string, name: string) {
+    return this.http.post(`${this.apiBaseUrl}/api/v1/admin/eps/${epsId}/plans`, { code, name });
+  }
+
+  updateEpsPlan(id: number, name: string) {
+    return this.http.patch(`${this.apiBaseUrl}/api/v1/admin/eps-plans/${id}`, { name });
+  }
+
+  changeEpsPlanStatus(id: number, active: boolean) {
+    return this.http.patch(`${this.apiBaseUrl}/api/v1/admin/eps-plans/${id}/active`, { active });
   }
 
   readonly profesionales = signal<ProfesionalSalud[]>([
@@ -590,7 +866,13 @@ export class FcvDataService {
     return this.citas().filter((c) => c.estado === 'Pendiente de aprobación');
   });
 
+  readonly myCitas = computed(() => {
+    if (this.apiMyCitasLoaded()) return this.apiMyCitas();
+    return this.citas();
+  });
+
   readonly pendingReprogramaciones = computed(() => {
+    if (this.adminPendingReschedulesLoaded()) return this.adminPendingReschedules();
     return this.solicitudesReprog().filter((r) => r.estado === 'pendiente');
   });
 
@@ -681,75 +963,31 @@ export class FcvDataService {
     return newCita;
   }
 
-  // Marcar Asistencia en agenda del médico (HU-024)
-  marcarAsistencia(citaId: string, estado: 'realizada' | 'inasistencia') {
-    const timeStr = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-    this.citas.update((list) =>
-      list.map((c) => {
-        if (c.id === citaId) {
-          const newStatus: AppointmentStatus = estado === 'realizada' ? 'Realizada' : 'No asistió';
-          return {
-            ...c,
-            estado: newStatus,
-            registroHoraConfirmado: `${timeStr} hrs`,
-            observacionAsistencial:
-              estado === 'realizada'
-                ? `Realizada · Confirmada a las ${timeStr} hrs`
-                : 'Inasistencia confirmada · Paciente no se presentó',
-            trazabilidad: [
-              ...c.trazabilidad,
-              {
-                estado: newStatus,
-                fechaHora: `Hoy, ${timeStr} hrs`,
-                actor: this.currentUser().name,
-                fuente: 'Estación Asistencial Médica FCV',
-                isCurrent: true,
-              },
-            ],
-          };
+  // Marcar asistencia en agenda del profesional (HU-022)
+  marcarAsistencia(appointmentId: number, estado: 'realizada' | 'inasistencia') {
+    const outcome = estado === 'realizada' ? 'COMPLETED' : 'NO_SHOW';
+    this.closeAppointment(appointmentId, outcome).subscribe({
+      next: () => {
+        this.loadMyAgenda().subscribe();
+        if (estado === 'realizada') {
+          this.showToast('Asistencia confirmada', 'Cita registrada como atendida.', 'check_circle');
+        } else {
+          this.showToast('Inasistencia registrada', 'Cupo auditado en el sistema.', 'person_off', 'error');
         }
-        return c;
-      })
-    );
-
-    if (estado === 'realizada') {
-      this.showToast('Asistencia confirmada', `Cita registrada como atendida a las ${timeStr} hrs.`, 'check_circle');
-    } else {
-      this.showToast('Inasistencia registrada', 'Cupo auditado y liberado en el sistema.', 'person_off', 'error');
-    }
+      },
+      error: () => this.showToast('No se pudo registrar', 'La API rechazó el cierre de la cita.', 'error', 'error'),
+    });
   }
 
-  // Solicitud de Reprogramación del paciente (HU-020, HU-021)
-  solicitarReprogramacion(citaId: string, fechaPropuesta: string, horaPropuesta: string, motivo: string) {
-    const cita = this.citas().find((c) => c.id === citaId);
-    if (!cita) return;
-
-    const randNum = Math.floor(1000 + Math.random() * 9000);
-    const newRep: SolicitudReprogramacion = {
-      id: 'rep-' + Date.now(),
-      codigo: `#REP-${randNum}`,
-      citaId: cita.id,
-      pacienteNombre: cita.pacienteNombre,
-      pacienteDoc: cita.pacienteDoc,
-      especialidad: cita.especialidad,
-      profesional: cita.profesionalNombre,
-      sede: cita.sede,
-      consultorio: cita.consultorio,
-      fechaActual: cita.fechaTexto,
-      horaActual: cita.hora,
-      fechaPropuesta,
-      horaPropuesta,
-      motivo: motivo || 'Solicitud de cambio de horario del paciente',
-      estado: 'pendiente',
-    };
-
-    this.solicitudesReprog.update((prev) => [newRep, ...prev]);
-
-    this.showToast(
-      'Solicitud radicada',
-      `Radicado ${newRep.codigo}. Su cita actual sigue confirmada hasta que administración decida.`,
-      'update'
-    );
+  // Solicitud de reprogramación del paciente (HU-020)
+  solicitarReprogramacion(appointmentId: number, slotIds: number[], motivo: string) {
+    this.requestReschedule(appointmentId, { slotIds, reason: motivo || 'Solicitud de cambio de horario del paciente' }).subscribe({
+      next: () => {
+        this.loadMyAppointments().subscribe();
+        this.showToast('Solicitud radicada', 'Su cita actual sigue confirmada hasta que administración decida.', 'update');
+      },
+      error: () => this.showToast('No se pudo radicar', 'La API rechazó la solicitud de reprogramación.', 'error', 'error'),
+    });
   }
 
   // Aceptar o rechazar propuesta de cambio de la clínica (en cita-5)
@@ -793,29 +1031,14 @@ export class FcvDataService {
   }
 
   // Cancelar cita (HU-019)
-  cancelarCita(citaId: string) {
-    this.citas.update((list) =>
-      list.map((c) => {
-        if (c.id === citaId) {
-          return {
-            ...c,
-            estado: 'Cancelada' as AppointmentStatus,
-            trazabilidad: [
-              ...c.trazabilidad,
-              {
-                estado: 'Cancelada',
-                fechaHora: new Date().toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }),
-                actor: this.currentUser().name,
-                fuente: 'Interfaz Paciente FCV',
-                isCurrent: true,
-              },
-            ],
-          };
-        }
-        return c;
-      })
-    );
-    this.showToast('Cita cancelada', 'El cupo ha sido liberado exitosamente en el catálogo general.', 'cancel');
+  cancelarCita(appointmentId: number) {
+    this.cancelAppointment(appointmentId).subscribe({
+      next: () => {
+        this.loadMyAppointments().subscribe();
+        this.showToast('Cita cancelada', 'El cupo ha sido liberado exitosamente en el catálogo general.', 'cancel');
+      },
+      error: () => this.showToast('No se pudo cancelar', 'La API rechazó la cancelación de la cita.', 'error', 'error'),
+    });
   }
 
   // Administrador: Aprobar Cita Especializada (HU-017)
@@ -886,35 +1109,19 @@ export class FcvDataService {
     this.showToast('Cita rechazada', 'Se registró el motivo institucional de rechazo y se liberó la franja.', 'cancel', 'error');
   }
 
-  // Administrador: Conciliación de Reprogramación
-  aprobarReprogramacion(repId: string) {
-    const rep = this.solicitudesReprog().find((r) => r.id === repId);
-    if (!rep) return;
-
-    this.solicitudesReprog.update((list) =>
-      list.map((r) => (r.id === repId ? { ...r, estado: 'aprobada' as const } : r))
-    );
-
-    this.showToast(
-      'Reprogramación aprobada',
-      `Solicitud ${rep.codigo} aprobada. Nueva franja ${rep.fechaPropuesta} ${rep.horaPropuesta} confirmada.`,
-      'done_all'
-    );
+  // Administrador: conciliación de reprogramación (HU-020)
+  aprobarReprogramacion(repId: number) {
+    this.decideAdminReschedule(repId, 'APPROVE').subscribe({
+      next: () => this.showToast('Reprogramación aprobada', 'Nueva franja confirmada para el paciente.', 'done_all'),
+      error: () => this.showToast('No se pudo aprobar', 'La API rechazó la decisión.', 'error', 'error'),
+    });
   }
 
-  rechazarReprogramacion(repId: string) {
-    const rep = this.solicitudesReprog().find((r) => r.id === repId);
-    if (!rep) return;
-
-    this.solicitudesReprog.update((list) =>
-      list.map((r) => (r.id === repId ? { ...r, estado: 'rechazada' as const } : r))
-    );
-
-    this.showToast(
-      'Reprogramación rechazada',
-      `Solicitud ${rep.codigo} denegada. Se mantiene la franja anterior.`,
-      'info'
-    );
+  rechazarReprogramacion(repId: number, motivo: string) {
+    this.decideAdminReschedule(repId, 'REJECT', motivo).subscribe({
+      next: () => this.showToast('Reprogramación rechazada', 'Se mantiene la franja anterior.', 'info'),
+      error: () => this.showToast('No se pudo rechazar', 'La API rechazó la decisión.', 'error', 'error'),
+    });
   }
 
   // Administrador: Crear nuevo profesional (HU-008)

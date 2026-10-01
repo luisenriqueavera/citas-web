@@ -122,7 +122,7 @@ import { UserRole } from '../../models/fcv.models';
                   </label>
                   <button
                     type="button"
-                    (click)="showForgotPasswordModal.set(true)"
+                    (click)="openForgotPasswordModal()"
                     class="text-xs font-medium text-primary hover:underline"
                   >
                     ¿Olvidaste tu contraseña?
@@ -245,7 +245,7 @@ import { UserRole } from '../../models/fcv.models';
         </div>
       </div>
 
-      <!-- Modal interactivo: Recuperar Contraseña -->
+      <!-- Modal interactivo: Recuperar Contraseña (HU-024) -->
       @if (showForgotPasswordModal()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-on-surface/50 backdrop-blur-xs">
           <div class="w-full max-w-md bg-surface-container-lowest rounded-2xl p-6 shadow-2xl border border-outline-variant/40 space-y-4">
@@ -263,34 +263,61 @@ import { UserRole } from '../../models/fcv.models';
               </button>
             </div>
 
-            <p class="text-xs text-on-surface-variant">
-              En este entorno de prototipo académico (HU-002), ingrese su correo para generar un token sintético demostrativo de recuperación.
-            </p>
+            @if (resetError()) {
+              <div class="p-3 rounded-xl bg-error-container text-on-error-container text-xs">{{ resetError() }}</div>
+            }
 
-            <div>
-              <label for="input-reset-email" class="block text-xs font-semibold text-on-surface mb-1">Correo electrónico</label>
-              <input
-                type="email"
-                id="input-reset-email"
-                [value]="loginForm.value.email || 'carlos.perez@fcv.edu.co'"
-                class="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/60 rounded-xl text-sm"
-                readonly
-              />
-            </div>
+            @if (!resetDevToken()) {
+              <p class="text-xs text-on-surface-variant">
+                Ingrese su correo para generar un token de recuperación de un solo uso (válido 15 minutos). En este entorno de desarrollo el token se muestra aquí mismo, sin envío de correo real.
+              </p>
 
-            <div class="p-3.5 rounded-xl bg-primary-fixed text-on-primary-fixed border border-primary-fixed-dim space-y-1">
-              <span class="text-[11px] font-bold uppercase tracking-wider block">Token Demostrativo Generado:</span>
-              <p class="font-mono font-bold text-base tracking-widest text-primary">FCV-RESET-984210</p>
-              <p class="text-[11px] text-on-primary-fixed-variant">Válido durante 15 minutos en el sandbox local.</p>
-            </div>
+              <div>
+                <label for="input-reset-email" class="block text-xs font-semibold text-on-surface mb-1">Correo electrónico</label>
+                <input
+                  type="email"
+                  id="input-reset-email"
+                  #resetEmail
+                  [value]="loginForm.value.email || ''"
+                  class="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/60 rounded-xl text-sm"
+                />
+              </div>
 
-            <button
-              type="button"
-              (click)="confirmResetPassword()"
-              class="w-full py-2.5 rounded-xl bg-primary text-on-primary font-semibold text-xs shadow-md"
-            >
-              Simular Restablecimiento y Cerrar
-            </button>
+              <button
+                type="button"
+                [disabled]="resetSubmitting()"
+                (click)="requestReset(resetEmail.value)"
+                class="w-full py-2.5 rounded-xl bg-primary text-on-primary font-semibold text-xs shadow-md disabled:opacity-60"
+              >
+                {{ resetSubmitting() ? 'Generando token...' : 'Generar token de recuperación' }}
+              </button>
+            } @else {
+              <div class="p-3.5 rounded-xl bg-primary-fixed text-on-primary-fixed border border-primary-fixed-dim space-y-1">
+                <span class="text-[11px] font-bold uppercase tracking-wider block">Token de desarrollo generado:</span>
+                <p class="font-mono font-bold text-base tracking-widest text-primary break-all">{{ resetDevToken() }}</p>
+                <p class="text-[11px] text-on-primary-fixed-variant">Válido durante 15 minutos, un solo uso.</p>
+              </div>
+
+              <div>
+                <label for="input-reset-new-password" class="block text-xs font-semibold text-on-surface mb-1">Nueva contraseña</label>
+                <input
+                  type="password"
+                  id="input-reset-new-password"
+                  #newPassword
+                  placeholder="Mínimo 8 caracteres"
+                  class="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/60 rounded-xl text-sm"
+                />
+              </div>
+
+              <button
+                type="button"
+                [disabled]="resetSubmitting()"
+                (click)="confirmResetPassword(newPassword.value)"
+                class="w-full py-2.5 rounded-xl bg-primary text-on-primary font-semibold text-xs shadow-md disabled:opacity-60"
+              >
+                {{ resetSubmitting() ? 'Guardando...' : 'Confirmar nueva contraseña' }}
+              </button>
+            }
           </div>
         </div>
       }
@@ -376,6 +403,9 @@ export class LoginPage {
   readonly isSubmitting = signal<boolean>(false);
   readonly errorMessage = signal<string>('');
   readonly showForgotPasswordModal = signal<boolean>(false);
+  readonly resetDevToken = signal<string>('');
+  readonly resetSubmitting = signal<boolean>(false);
+  readonly resetError = signal<string>('');
   readonly showRegisterModal = signal<boolean>(false);
   readonly registrationPlanId = new FormControl<number | null>(null);
   readonly registrationError = signal<string>('');
@@ -423,9 +453,54 @@ export class LoginPage {
     });
   }
 
-  confirmResetPassword() {
-    this.showForgotPasswordModal.set(false);
-    this.fcvService.showToast('Contraseña restablecida', 'Se ha simulado el cambio de credenciales para el entorno sandbox.', 'check_circle');
+  openForgotPasswordModal() {
+    this.resetDevToken.set('');
+    this.resetError.set('');
+    this.showForgotPasswordModal.set(true);
+  }
+
+  requestReset(email: string) {
+    if (!email) {
+      this.resetError.set('Ingrese un correo válido.');
+      return;
+    }
+    this.resetError.set('');
+    this.resetSubmitting.set(true);
+    this.fcvService.requestPasswordReset(email).subscribe({
+      next: (response) => {
+        this.resetSubmitting.set(false);
+        if (!response.devToken) {
+          this.resetError.set('Si el correo existe, se generó un token (revise su bandeja en un entorno real).');
+          return;
+        }
+        this.resetDevToken.set(response.devToken);
+      },
+      error: () => {
+        this.resetSubmitting.set(false);
+        this.resetError.set('No fue posible generar el token de recuperación.');
+      },
+    });
+  }
+
+  confirmResetPassword(newPassword: string) {
+    const token = this.resetDevToken();
+    if (!token) return;
+    if (!newPassword || newPassword.length < 8) {
+      this.resetError.set('La nueva contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+    this.resetSubmitting.set(true);
+    this.fcvService.confirmPasswordReset(token, newPassword).subscribe({
+      next: () => {
+        this.resetSubmitting.set(false);
+        this.showForgotPasswordModal.set(false);
+        this.fcvService.showToast('Contraseña restablecida', 'Ya puede iniciar sesión con su nueva contraseña.', 'check_circle');
+      },
+      error: () => {
+        this.resetSubmitting.set(false);
+        this.resetError.set('El token ya no es válido. Genere uno nuevo.');
+      },
+    });
   }
 
   confirmRegister(name: string) {
