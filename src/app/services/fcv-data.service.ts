@@ -176,23 +176,23 @@ export class FcvDataService {
   readonly epsAdminList = signal<EpsAdmin[]>([]);
 
   loadActiveInsurancePlans() {
-    return this.http.get<InsurancePlanOption[]>('/api/insurance-plans').pipe(
+    return this.http.get<InsurancePlanOption[]>(`${this.apiBaseUrl}/api/insurance-plans`).pipe(
       tap(plans => this.activeInsurancePlans.set(plans)),
     );
   }
 
   registerUser(payload: Record<string, unknown>) {
-    return this.http.post('/api/auth/register', payload);
+    return this.http.post(`${this.apiBaseUrl}/api/auth/register`, payload);
   }
 
   loginUser(email: string, password: string) {
-    return this.http.post<{ accessToken: string; refreshToken: string; tokenType: string }>('/api/auth/login', {email, password}).pipe(
+    return this.http.post<{ accessToken: string; refreshToken: string; tokenType: string }>(`${this.apiBaseUrl}/api/auth/login`, {email, password}).pipe(
       tap(tokens => localStorage.setItem('fcv_access_token', tokens.accessToken)),
     );
   }
 
   loadAdminPendingAppointments() {
-    return this.http.get<PendingAppointmentRow[]>('/api/v1/admin/appointments/pending').pipe(
+    return this.http.get<PendingAppointmentRow[]>(`${this.apiBaseUrl}/api/v1/admin/appointments/pending`).pipe(
       tap(rows => {
         this.adminPendingAppointments.set(rows.map(row => ({
           id: String(row.id), codigo: `#FCV-${row.id}`, pacienteId: String(row.patientUserId),
@@ -209,21 +209,21 @@ export class FcvDataService {
   }
 
   decideAdminAppointment(id: string, decision: 'APPROVE' | 'REJECT', reason?: string) {
-    return this.http.post(`/api/v1/admin/appointments/${id}/decision`, {decision, reason, adminUserId: 102}).pipe(
+    return this.http.post(`${this.apiBaseUrl}/api/v1/admin/appointments/${id}/decision`, {decision, reason, adminUserId: 102}).pipe(
       tap(() => this.loadAdminPendingAppointments().subscribe()),
     );
   }
 
   createAvailabilityBlock(payload: { professionalId: number; locationId: number; availableDate: string; startTime: string; endTime: string }) {
-    return this.http.post('/api/v1/professional/availability-blocks', payload);
+    return this.http.post(`${this.apiBaseUrl}/api/v1/professional/availability-blocks`, payload);
   }
 
   createProfessional(payload: Record<string, unknown>) {
-    return this.http.post<{id: number; email: string; professionalCode: string}>('/api/v1/admin/professionals', payload);
+    return this.http.post<{id: number; email: string; professionalCode: string}>(`${this.apiBaseUrl}/api/v1/admin/professionals`, payload);
   }
 
   loadProfessionals() {
-    return this.http.get<{id: number; firstName: string; lastName: string; email: string; professionalCode: string; licenseNumber: string; active: boolean; specialtyName?: string; durationMinutes?: number; locationNames?: string[]}[]>('/api/v1/admin/professionals').pipe(
+    return this.http.get<{id: number; firstName: string; lastName: string; email: string; professionalCode: string; licenseNumber: string; active: boolean; specialtyName?: string; durationMinutes?: number; locationNames?: string[]}[]>(`${this.apiBaseUrl}/api/v1/admin/professionals`).pipe(
       tap(rows => this.profesionales.set(rows.map(row => ({
         apiId: row.id,
         codigo: row.professionalCode,
@@ -240,15 +240,15 @@ export class FcvDataService {
   }
 
   changeProfessionalStatus(id: number, active: boolean) {
-    return this.http.patch(`/api/v1/admin/professionals/${id}/active`, {active});
+    return this.http.patch(`${this.apiBaseUrl}/api/v1/admin/professionals/${id}/active`, {active});
   }
 
   assignProfessionalSpecialties(id: number, ids: number[], primaryId: number) {
-    return this.http.put(`/api/v1/admin/professionals/${id}/specialties`, {ids, primaryId});
+    return this.http.put(`${this.apiBaseUrl}/api/v1/admin/professionals/${id}/specialties`, {ids, primaryId});
   }
 
   assignProfessionalLocations(id: number, ids: number[]) {
-    return this.http.put(`/api/v1/admin/professionals/${id}/locations`, {ids});
+    return this.http.put(`${this.apiBaseUrl}/api/v1/admin/professionals/${id}/locations`, {ids});
   }
 
   loadAvailability(filters: { date: string; locationId?: number; specialtyId?: number; professionalId?: number }) {
@@ -256,7 +256,7 @@ export class FcvDataService {
     if (filters.locationId) params['locationId'] = String(filters.locationId);
     if (filters.specialtyId) params['specialtyId'] = String(filters.specialtyId);
     if (filters.professionalId) params['professionalId'] = String(filters.professionalId);
-    return this.http.get<AvailabilityOption[]>('/api/v1/availability', { params }).pipe(
+    return this.http.get<AvailabilityOption[]>(`${this.apiBaseUrl}/api/v1/availability`, { params }).pipe(
       tap(options => this.apiAvailability.set(options)),
     );
   }
@@ -264,7 +264,7 @@ export class FcvDataService {
   readonly apiAvailability = signal<AvailabilityOption[]>([]);
 
   createAppointment(payload: { patientUserId: number; professionalId: number; locationId: number; specialtyId: number; slotIds: number[]; reason?: string }) {
-    return this.http.post<{ id: number; status: 'APPROVED' | 'REQUESTED'; slotIds: number[] }>('/api/v1/appointments', payload);
+    return this.http.post<{ id: number; status: 'APPROVED' | 'REQUESTED'; slotIds: number[] }>(`${this.apiBaseUrl}/api/v1/appointments`, payload);
   }
 
   // S4: catálogos reales por id (nombres de sede/especialidad/profesional).
